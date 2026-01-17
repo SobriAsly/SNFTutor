@@ -36,7 +36,7 @@ const App: React.FC = () => {
   });
 
   const [plannerName, setPlannerName] = useState(() => {
-    return localStorage.getItem('tutor_planner_name') || 'SNFTutor';
+    return localStorage.getItem('tutor_planner_name') || 'SNFTutor213';
   });
 
   const [plannerIcon, setPlannerIcon] = useState(() => {
