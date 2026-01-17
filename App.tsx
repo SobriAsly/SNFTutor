@@ -36,7 +36,7 @@ const App: React.FC = () => {
   });
 
   const [plannerName, setPlannerName] = useState(() => {
-    return localStorage.getItem('tutor_planner_name') || 'TutorSync';
+    return localStorage.getItem('tutor_planner_name') || 'SNFTutor';
   });
 
   const [plannerIcon, setPlannerIcon] = useState(() => {
@@ -169,7 +169,7 @@ const App: React.FC = () => {
   };
 
   const savePlannerName = () => {
-    setPlannerName(tempName.trim() || 'TutorSync');
+    setPlannerName(tempName.trim() || 'SNFTutor');
     setIsEditingName(false);
   };
 
