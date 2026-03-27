@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Student, ClassSession, ViewType } from './types';
+import { Student, ClassSession, ViewType, PaymentInfo } from './types';
 import { INITIAL_STUDENTS } from './constants';
 import { MONTH_NAMES, getDaysInMonth, getFirstDayOfMonth, formatTime } from './utils/dateUtils';
 import ClassModal from './components/ClassModal';
 import StudentModal from './components/StudentModal';
+import IncomeView from './components/IncomeView';
 import * as htmlToImage from 'html-to-image';
 import { 
   Users, 
@@ -17,10 +18,11 @@ import {
   Edit2,
   Download,
   Check,
-  X as CloseIcon,
   Camera,
   Menu,
-  X
+  X,
+  ArrowRight,
+  TrendingUp
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -35,8 +37,13 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : [];
   });
 
+  const [payments, setPayments] = useState<PaymentInfo[]>(() => {
+    const saved = localStorage.getItem('tutor_payments');
+    return saved ? JSON.parse(saved) : [];
+  });
+
   const [plannerName, setPlannerName] = useState(() => {
-    return localStorage.getItem('tutor_planner_name') || 'SNFTutor213';
+    return localStorage.getItem('tutor_planner_name') || 'SNFTutor';
   });
 
   const [plannerIcon, setPlannerIcon] = useState(() => {
@@ -53,6 +60,7 @@ const App: React.FC = () => {
   const [tempName, setTempName] = useState(plannerName);
   const [isExporting, setIsExporting] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [warningMessage, setWarningMessage] = useState<string | null>(null);
 
   const exportRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -67,12 +75,35 @@ const App: React.FC = () => {
   }, [classes]);
 
   useEffect(() => {
+    localStorage.setItem('tutor_payments', JSON.stringify(payments));
+  }, [payments]);
+
+  useEffect(() => {
     localStorage.setItem('tutor_planner_name', plannerName);
   }, [plannerName]);
 
   useEffect(() => {
     localStorage.setItem('tutor_planner_icon', plannerIcon);
   }, [plannerIcon]);
+
+  useEffect(() => {
+    if (warningMessage) {
+      const timer = setTimeout(() => setWarningMessage(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [warningMessage]);
+
+  const studentMap = useMemo(() => {
+    const map = new Map<string, Student>();
+    students.forEach(s => map.set(s.id, s));
+    return map;
+  }, [students]);
+
+  // Update document title dynamically
+  useEffect(() => {
+    const currentViewTitle = currentView === 'MASTER' ? '' : (studentMap.get(currentView)?.name || (currentView === 'INCOME' ? 'Income' : ''));
+    document.title = currentViewTitle ? currentViewTitle : plannerName;
+  }, [plannerName, currentView, studentMap]);
 
   // Derived Values
   const year = selectedDate.getFullYear();
@@ -94,15 +125,9 @@ const App: React.FC = () => {
       const isRelevantMonth = startInMonth || endInMonth || spansMonth;
       
       if (currentView === 'MASTER') return isRelevantMonth;
-      return isRelevantMonth && c.type === 'SESSION' && c.studentId === currentView;
+      return isRelevantMonth && (c.type === 'EVENT' || ((c.type === 'SESSION' || c.type === 'QUICK') && c.studentId === currentView));
     });
   }, [classes, year, month, currentView]);
-
-  const studentMap = useMemo(() => {
-    const map = new Map<string, Student>();
-    students.forEach(s => map.set(s.id, s));
-    return map;
-  }, [students]);
 
   // Handlers
   const handlePrevMonth = () => setSelectedDate(new Date(year, month - 1, 1));
@@ -122,14 +147,68 @@ const App: React.FC = () => {
   };
 
   const deleteClass = (id: string) => {
-    setClasses(prev => prev.filter(c => c.id !== id));
+    setClasses(prev => {
+      const sessionToDelete = prev.find(c => c.id === id);
+      if (!sessionToDelete) return prev;
+
+      // IDs to delete
+      const idsToDelete = new Set([id]);
+
+      // If this is a rescheduled session, also delete the original "ghost"
+      if (sessionToDelete.originalSessionId) {
+        idsToDelete.add(sessionToDelete.originalSessionId);
+      }
+
+      // If this is an original session that was rescheduled, also delete the new one
+      if (sessionToDelete.rescheduledTo) {
+        const linkedSession = prev.find(c => c.originalSessionId === id);
+        if (linkedSession) {
+          idsToDelete.add(linkedSession.id);
+        }
+      }
+
+      return prev.filter(c => !idsToDelete.has(c.id));
+    });
+  };
+
+  const handleReschedule = (session: ClassSession, newDate: string) => {
+    setClasses(prev => {
+      let updatedClasses = [...prev];
+      let targetOriginalId = session.id;
+
+      // If we are rescheduling a session that was already a result of a reschedule (e.g., March 8th)
+      if (session.originalSessionId) {
+        // Remove the intermediate session
+        updatedClasses = updatedClasses.filter(c => c.id !== session.id);
+        // The real original is the one we want to update (e.g., March 2nd)
+        targetOriginalId = session.originalSessionId;
+      }
+
+      // 1. Update/Mark original as rescheduled to the final destination
+      updatedClasses = updatedClasses.map(c => 
+        c.id === targetOriginalId ? { ...c, rescheduledTo: newDate } : c
+      );
+
+      // 2. Create new session on new date, linked to the original
+      const newSession: ClassSession = {
+        ...session,
+        id: Math.random().toString(36).substr(2, 9),
+        date: newDate,
+        rescheduledTo: undefined,
+        originalSessionId: targetOriginalId
+      };
+
+      return [...updatedClasses, newSession];
+    });
   };
 
   const addStudent = (name: string, color: string) => {
     const newStudent: Student = {
       id: Math.random().toString(36).substr(2, 9),
       name,
-      color
+      color,
+      defaultHours: 1,
+      pricePerHour: 35
     };
     setStudents(prev => [...prev, newStudent]);
   };
@@ -140,30 +219,62 @@ const App: React.FC = () => {
     if (currentView === id) setCurrentView('MASTER');
   };
 
+  const togglePayment = (studentId: string, month: number, year: number, isPaid: boolean, date?: string) => {
+    setPayments(prev => {
+      const existingIndex = prev.findIndex(p => p.studentId === studentId && p.month === month && p.year === year);
+      if (existingIndex > -1) {
+        const updated = [...prev];
+        updated[existingIndex] = { ...updated[existingIndex], isPaid, paidDate: date };
+        return updated;
+      }
+      return [...prev, { studentId, month, year, isPaid, paidDate: date }];
+    });
+  };
+
+  const updatePaymentInfo = (studentId: string, month: number, year: number, data: Partial<PaymentInfo>) => {
+    setPayments(prev => {
+      const existingIndex = prev.findIndex(p => p.studentId === studentId && p.month === month && p.year === year);
+      if (existingIndex > -1) {
+        const updated = [...prev];
+        updated[existingIndex] = { ...updated[existingIndex], ...data };
+        return updated;
+      }
+      return [...prev, { studentId, month, year, isPaid: false, ...data }];
+    });
+  };
+
   const handleDayClick = (day: number) => {
     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-
-    if (currentView !== 'MASTER') {
-      const existingClassIdx = classes.findIndex(c => c.date === dateStr && c.studentId === currentView && c.type === 'SESSION');
-      if (existingClassIdx > -1) {
-        setClasses(prev => prev.filter((_, i) => i !== existingClassIdx));
+    if (currentView !== 'MASTER' && currentView !== 'INCOME') {
+      const existingClass = classes.find(c => c.date === dateStr && c.studentId === currentView && (c.type === 'SESSION' || c.type === 'QUICK'));
+      if (existingClass) {
+        if (existingClass.rescheduledTo) {
+          setWarningMessage(`This class was rescheduled to ${existingClass.rescheduledTo.split('-').reverse().join('/')}. Please manage it on that date.`);
+          return;
+        }
+        // 2nd click: Open modal for existing class
+        setEditingClass(existingClass);
+        setIsClassModalOpen(true);
       } else {
-        const newClass: ClassSession = {
-          id: Math.random().toString(36).substr(2, 9),
+        // 1st click: Add class immediately without opening modal
+        addOrUpdateClass({ 
+          date: dateStr, 
           studentId: currentView,
-          type: 'SESSION',
-          date: dateStr
-        };
-        setClasses(prev => [...prev, newClass]);
+          type: 'QUICK'
+        });
       }
-    } else {
-      setEditingClass({ date: dateStr, type: 'SESSION' });
+    } else if (currentView === 'MASTER') {
+      setEditingClass({ date: dateStr, type: 'EVENT' });
       setIsClassModalOpen(true);
     }
   };
 
   const handleClassDetailsClick = (e: React.MouseEvent, c: ClassSession) => {
     e.stopPropagation();
+    if (c.rescheduledTo) {
+      setWarningMessage(`This class was rescheduled to ${c.rescheduledTo.split('-').reverse().join('/')}. Please manage it on that date.`);
+      return;
+    }
     setEditingClass(c);
     setIsClassModalOpen(true);
   };
@@ -194,47 +305,83 @@ const App: React.FC = () => {
     if (!exportRef.current) return;
     setIsExporting(true);
     setIsSidebarOpen(false);
+    
+    const originalView = currentView;
+    
     try {
-      await new Promise(resolve => setTimeout(resolve, 600));
-      
-      // Strict 16:9 Landscape capture dimensions
-      const captureWidth = 1600;
-      const captureHeight = 900;
-      
-      const options = {
-        backgroundColor: '#f8fafc',
-        cacheBust: true,
-        pixelRatio: 2, 
-        width: captureWidth,
-        height: captureHeight,
-        style: {
-          padding: '40px 60px',
-          borderRadius: '0px',
-          width: `${captureWidth}px`,
-          height: `${captureHeight}px`,
-          margin: '0',
-          transform: 'none',
-          backgroundColor: '#f8fafc',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-          overflow: 'hidden'
+      // Export all students one by one
+      for (const student of students) {
+        // Switch view to student
+        setCurrentView(student.id);
+        
+        // Wait for React to re-render and for content to be ready
+        // We use a slightly longer timeout to ensure the view has switched and styles are applied
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
+        // Calculate actual content dimensions for this specific student's view
+        const contentElement = exportRef.current;
+        const actualWidth = contentElement.scrollWidth;
+        const actualHeight = contentElement.scrollHeight;
+        
+        // Margins: 1.0cm approx 38px, 0.5cm approx 19px
+        const leftMargin = 38; 
+        const topMargin = 19;
+        
+        let captureWidth: number;
+        let captureHeight: number;
+
+        // We want Height / Width = 16 / 9
+        const requiredWidth = actualWidth + leftMargin;
+        const requiredHeight = actualHeight + topMargin;
+
+        const hByWidth = (requiredWidth * 16) / 9;
+        
+        if (hByWidth >= requiredHeight) {
+          // Width is the limiting factor
+          captureWidth = requiredWidth;
+          captureHeight = hByWidth;
+        } else {
+          // Height is the limiting factor
+          captureHeight = requiredHeight;
+          captureWidth = (captureHeight * 9) / 16;
         }
-      };
-      
-      const dataUrl = await htmlToImage.toPng(exportRef.current, options);
-      
-      const link = document.createElement('a');
-      const filename = currentView === 'MASTER' 
-        ? `${plannerName}_Master_${currentMonthName}_${year}.png`
-        : `${plannerName}_${studentMap.get(currentView)?.name}_${currentMonthName}_${year}.png`;
-      link.download = filename;
-      link.href = dataUrl;
-      link.click();
+        
+        const options = {
+          backgroundColor: '#f8fafc',
+          cacheBust: true,
+          pixelRatio: 2, 
+          width: captureWidth,
+          height: captureHeight,
+          style: {
+            paddingTop: `${topMargin}px`,
+            paddingLeft: `${leftMargin}px`,
+            paddingRight: '0px',
+            paddingBottom: '0px',
+            width: `${captureWidth}px`,
+            height: `${captureHeight}px`,
+            backgroundColor: '#f8fafc',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'flex-start',
+            alignItems: 'flex-start'
+          }
+        };
+        
+        const dataUrl = await htmlToImage.toJpeg(exportRef.current, options);
+        const link = document.createElement('a');
+        const filename = `${student.name}_${currentMonthName}.jpg`;
+        link.download = filename;
+        link.href = dataUrl;
+        link.click();
+        
+        // Small delay between captures to ensure browser handles downloads correctly
+        await new Promise(resolve => setTimeout(resolve, 400));
+      }
     } catch (error) {
       console.error('Error exporting image:', error);
-      alert('Could not generate the image. Please try taking a manual screenshot.');
+      alert('Could not generate the images.');
     } finally {
+      setCurrentView(originalView);
       setIsExporting(false);
     }
   };
@@ -247,35 +394,45 @@ const App: React.FC = () => {
       days.push(<div key={`empty-${i}`} className="bg-gray-50 h-24 md:h-32 border border-gray-100"></div>);
     }
 
-    // Adjust cell height for export to ensure 16:9 fit if many rows
     const numRows = Math.ceil((startDay + daysInMonth) / 7);
     const cellClass = isExporting 
       ? (numRows > 5 ? 'h-24' : 'h-28') 
       : 'h-24 md:h-32';
 
+    const currentStudent = currentView === 'MASTER' ? null : studentMap.get(currentView);
+
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      
       const dayClasses = filteredClasses.filter(c => {
         if (c.type === 'EVENT' && c.endDate) {
           return dateStr >= c.date && dateStr <= c.endDate;
         }
         return c.date === dateStr;
       });
+
+      const isStudentView = currentView !== 'MASTER';
+      const hasStudentSession = isStudentView && dayClasses.some(c => (c.type === 'SESSION' || c.type === 'QUICK') && c.studentId === currentView && !c.rescheduledTo);
+      const isRescheduledDay = isStudentView && dayClasses.some(c => (c.type === 'SESSION' || c.type === 'QUICK') && c.studentId === currentView && c.rescheduledTo);
+      const hasSpecialInput = isStudentView && dayClasses.some(c => (c.type === 'SESSION' || c.type === 'QUICK') && c.studentId === currentView && !c.rescheduledTo && (c.startTime || c.duration || c.notes));
       
+      const studentBgClass = hasSpecialInput ? 'bg-yellow-300' : (hasStudentSession ? currentStudent?.color?.split(' ')[0] : (isRescheduledDay ? 'bg-gray-100' : 'bg-white'));
+      const studentTextColorClass = hasStudentSession ? currentStudent?.color?.split(' ')[1] : (isRescheduledDay ? 'text-gray-400' : 'text-gray-400');
+      const studentBorderClass = 'border border-gray-100';
+
       days.push(
         <div 
           key={d} 
           onClick={() => handleDayClick(d)}
-          className={`${cellClass} border border-gray-100 p-1 md:p-2 overflow-y-auto hide-scrollbar transition-colors cursor-pointer group relative ${currentView !== 'MASTER' ? 'hover:bg-indigo-50/50 bg-white' : 'bg-white hover:bg-gray-50'}`}
+          className={`${cellClass} ${isStudentView && hasStudentSession ? studentBorderClass : 'border border-gray-100'} transition-colors cursor-pointer group relative flex flex-col ${isStudentView ? (hasStudentSession ? `${studentBgClass} p-0` : (isRescheduledDay ? 'bg-gray-100 p-0' : 'bg-white hover:bg-indigo-50/30 p-1 md:p-2')) : 'bg-white hover:bg-gray-50 p-1 md:p-2'} overflow-hidden`}
         >
-          <div className="flex justify-between items-start mb-0.5 md:mb-1">
-            <span className="text-[10px] md:text-sm font-semibold text-gray-400 group-hover:text-indigo-600 transition-colors">{d}</span>
-            {currentView !== 'MASTER' && !isExporting && (
+          <div className={`flex justify-between items-start mb-0.5 md:mb-1 ${hasStudentSession || isRescheduledDay ? 'p-1 md:p-2' : ''}`}>
+            <span className={`text-[10px] md:text-sm font-bold ${hasStudentSession ? studentTextColorClass : 'text-gray-400'} group-hover:text-indigo-600 transition-colors`}>{d}</span>
+            {isStudentView && !hasStudentSession && !isRescheduledDay && !isExporting && (
               <Plus className="w-3 md:w-3.5 h-3 md:h-3.5 text-indigo-300 opacity-0 group-hover:opacity-100 transition-opacity" />
             )}
           </div>
-          <div className="space-y-0.5 md:space-y-1">
+
+          <div className={`flex-1 flex flex-col ${hasStudentSession || isRescheduledDay ? 'justify-center items-center px-1 pb-2 w-full' : 'space-y-0.5 md:space-y-1'}`}>
             {dayClasses
               .sort((a, b) => (a.startTime || '00:00').localeCompare(b.startTime || '00:00'))
               .map(c => {
@@ -286,33 +443,62 @@ const App: React.FC = () => {
                     <div 
                       key={c.id + dateStr}
                       onClick={(e) => handleClassDetailsClick(e, c)}
-                      className={`px-1 md:px-1.5 py-0.5 md:py-1 transition-transform active:scale-95 border-gray-900 shadow-sm ${c.color || 'bg-gray-800 text-white'} ${isStart && isEnd ? 'rounded border' : isStart ? 'rounded-l border-l border-t border-b' : isEnd ? 'rounded-r border-r border-t border-b' : 'border-t border-b'}`}
+                      className={`px-1 md:px-1.5 py-0.5 md:py-1 transition-transform active:scale-95 border-gray-900 shadow-sm ${c.color || 'bg-gray-800 text-white'} ${isStart && isEnd ? 'rounded border' : isStart ? 'rounded-l border-l border-t border-b' : isEnd ? 'rounded-r border-r border-t border-b' : 'border-t border-b'} ${hasStudentSession ? 'w-[90%] mb-1' : ''}`}
                     >
                       <div className="flex items-center justify-between gap-0.5 md:gap-1 min-w-0">
                         <div className="flex items-center gap-0.5 md:gap-1 min-w-0">
                           <Star className="w-1.5 md:w-2 h-1.5 md:h-2 text-amber-400 fill-amber-400 flex-shrink-0" />
-                          <div className="text-[8px] md:text-[10px] font-bold truncate">
-                            {c.title}
-                          </div>
+                          <div className="text-[8px] md:text-[10px] font-bold truncate">{c.title}</div>
                         </div>
                       </div>
                     </div>
                   );
                 }
 
+                if (isStudentView && (hasStudentSession || isRescheduledDay)) {
+                    const isRescheduled = !!c.rescheduledTo;
+                    const reschDate = c.rescheduledTo ? c.rescheduledTo.split('-').slice(1).reverse().join('/') : '';
+                    
+                    return (
+                        <div key={c.id} className={`w-full text-center flex flex-col items-center justify-center animate-in fade-in slide-in-from-bottom-1 duration-300 px-0.5 ${isRescheduled ? 'opacity-60' : ''}`}>
+                            <div className="flex flex-col items-center justify-center leading-none w-full">
+                              <span className={`text-[8px] md:text-xs font-black ${studentTextColorClass} opacity-80 uppercase tracking-tighter mb-0.5 whitespace-nowrap text-center w-full`}>
+                                  {c.startTime ? formatTime(c.startTime) : ''}
+                              </span>
+                              <div className="flex flex-col items-center justify-center w-full">
+                                <span className={`text-[9px] md:text-sm font-black ${studentTextColorClass} leading-[1.1] break-words uppercase text-center whitespace-normal max-w-full flex items-center justify-center gap-1`}>
+                                    {currentStudent?.name}
+                                </span>
+                                {isRescheduled && (
+                                  <div className="flex items-center justify-center gap-0.5 text-indigo-500 mt-0.5">
+                                    <ArrowRight className="w-2 md:w-3 h-2 md:h-3" />
+                                    <span className="text-[7px] md:text-[9px] font-black">{reschDate}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            {c.duration && !isRescheduled && (
+                                <span className={`text-[7px] md:text-[8px] font-bold ${studentTextColorClass} opacity-70 uppercase mt-0.5 whitespace-nowrap text-center w-full`}>
+                                    {c.duration}
+                                </span>
+                            )}
+                        </div>
+                    );
+                }
+
                 const s = studentMap.get(c.studentId || '');
-                const studentName = s?.name || 'Unknown Student';
+                const studentName = s?.name || 'Unknown';
+                const isRescheduled = !!c.rescheduledTo;
                 
+                const hasSpecialInputMaster = !isRescheduled && (c.startTime || c.duration || c.notes);
+                const masterBgColor = hasSpecialInputMaster 
+                  ? 'bg-yellow-300 border' 
+                  : (isRescheduled ? 'bg-gray-100 text-gray-400 border-gray-200 border' : (s?.color || 'bg-gray-100 text-gray-800 border'));
+
                 return (
-                  <div 
-                    key={c.id}
-                    onClick={(e) => handleClassDetailsClick(e, c)}
-                    className={`px-1 md:px-1.5 py-0.5 md:py-1 rounded border shadow-sm transition-transform active:scale-95 ${s?.color || 'bg-gray-100 text-gray-800'}`}
-                  >
-                    <div className="flex items-center justify-between gap-0.5 md:gap-1 min-w-0">
-                      <div className="text-[8px] md:text-[10px] font-bold truncate">
-                        {c.startTime ? `${formatTime(c.startTime)} ${studentName}` : studentName}
-                      </div>
+                  <div key={c.id} onClick={(e) => handleClassDetailsClick(e, c)} className={`px-1 md:px-1.5 py-0.5 md:py-1 rounded shadow-sm transition-transform active:scale-95 ${masterBgColor} ${isRescheduled ? 'opacity-60' : ''} w-full overflow-hidden`}>
+                    <div className="text-[7px] md:text-[10px] font-bold truncate w-full flex items-center gap-1">
+                      {c.startTime ? `${formatTime(c.startTime)} ${studentName}` : studentName}
                     </div>
                   </div>
                 );
@@ -343,25 +529,14 @@ const App: React.FC = () => {
           className={`w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center text-white shadow-lg shadow-indigo-200 overflow-hidden relative group/icon ${isEditingName ? 'cursor-pointer ring-2 ring-indigo-500 ring-offset-2' : ''}`}
           onClick={handleIconClick}
         >
-          {plannerIcon ? (
-            <img src={plannerIcon} alt="Planner Logo" className="w-full h-full object-cover" />
-          ) : (
-            <CalendarIcon className="w-5 h-5" />
-          )}
+          {plannerIcon ? <img src={plannerIcon} alt="Planner Logo" className="w-full h-full object-cover" /> : <CalendarIcon className="w-5 h-5" />}
           {isEditingName && (
             <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover/icon:opacity-100 transition-opacity">
               <Camera className="w-4 h-4 text-white" />
             </div>
           )}
         </div>
-        <input 
-          type="file" 
-          ref={fileInputRef} 
-          className="hidden" 
-          accept="image/*" 
-          onChange={handleFileChange} 
-        />
-
+        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileChange} />
         {isEditingName ? (
           <div className="flex flex-col gap-1 w-full">
             <div className="flex items-center gap-1">
@@ -372,9 +547,7 @@ const App: React.FC = () => {
                 onChange={(e) => setTempName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && savePlannerName()}
               />
-              <button onClick={savePlannerName} className="p-1 hover:bg-green-50 text-green-600 rounded-md">
-                <Check className="w-3 h-3" />
-              </button>
+              <button onClick={savePlannerName} className="p-1 hover:bg-green-50 text-green-600 rounded-md"><Check className="w-3 h-3" /></button>
             </div>
             <span className="text-[10px] text-gray-400 font-bold tracking-wider uppercase">PLANNER</span>
           </div>
@@ -393,31 +566,28 @@ const App: React.FC = () => {
         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mb-4 px-1">VIEW</p>
         <button 
           onClick={() => { setCurrentView('MASTER'); setIsSidebarOpen(false); }}
-          className={`w-full flex items-center gap-4 px-3 py-3 rounded-xl transition-all ${currentView === 'MASTER' ? 'bg-indigo-50 text-indigo-700 font-bold shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
+          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${currentView === 'MASTER' ? 'bg-indigo-50 text-indigo-700 font-bold shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
         >
-          <Users className="w-5 h-5 opacity-70" />
+          <CalendarIcon className="w-5 h-5 opacity-70" />
           <span className="text-sm">Master</span>
+        </button>
+        <button 
+          onClick={() => { setCurrentView('INCOME'); setIsSidebarOpen(false); }}
+          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${currentView === 'INCOME' ? 'bg-emerald-50 text-emerald-700 font-bold shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
+        >
+          <TrendingUp className="w-5 h-5 opacity-70" />
+          <span className="text-sm">Income</span>
         </button>
       </div>
 
-      <div className="mt-12 flex-1">
+      <div className="mt-12 flex-1 overflow-y-auto hide-scrollbar">
         <div className="flex items-center justify-between mb-4 px-1">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em]">ROSTER</p>
-          <button 
-            onClick={() => setIsStudentModalOpen(true)}
-            className="p-1.5 hover:bg-gray-50 rounded-lg text-gray-400 hover:text-indigo-600 transition-colors"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
+          <button onClick={() => setIsStudentModalOpen(true)} className="p-1.5 hover:bg-gray-50 rounded-lg text-gray-400 hover:text-indigo-600 transition-colors"><Settings className="w-4 h-4" /></button>
         </div>
-        
         <div className="flex flex-wrap md:flex-col gap-2">
           {students.map(s => (
-            <button 
-              key={s.id}
-              onClick={() => { setCurrentView(s.id); setIsSidebarOpen(false); }}
-              className={`flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all group ${currentView === s.id ? 'bg-indigo-50 text-indigo-700 font-bold shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
-            >
+            <button key={s.id} onClick={() => { setCurrentView(s.id); setIsSidebarOpen(false); }} className={`flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all group ${currentView === s.id ? 'bg-indigo-50 text-indigo-700 font-bold shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}>
               <div className={`w-2 h-2 rounded-full border border-white ${s.color.split(' ')[0]}`} />
               <span className="text-sm truncate">{s.name}</span>
             </button>
@@ -427,26 +597,13 @@ const App: React.FC = () => {
       
       <div className="mt-auto pt-6 border-t border-gray-100 space-y-3">
         <button 
-          onClick={() => {
-            setEditingClass({ 
-              studentId: currentView === 'MASTER' ? undefined : currentView,
-              type: currentView === 'MASTER' ? 'EVENT' : 'SESSION'
-            });
-            setIsClassModalOpen(true);
-          }}
+          onClick={() => { setEditingClass({ studentId: currentView === 'MASTER' ? undefined : currentView, type: currentView === 'MASTER' ? 'EVENT' : 'SESSION' }); setIsClassModalOpen(true); }}
           className="w-full bg-white border border-gray-200 hover:border-indigo-300 hover:text-indigo-600 text-gray-600 font-bold py-3 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-sm active:scale-95"
         >
-          <Plus className="w-5 h-5" />
-          <span className="text-sm">New Entry</span>
+          <Plus className="w-5 h-5" /><span className="text-sm">New Entry</span>
         </button>
-
-        <button 
-          onClick={exportToImage}
-          disabled={isExporting}
-          className={`w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-100 active:scale-95 ${isExporting ? 'opacity-70 cursor-wait' : ''}`}
-        >
-          <Download className="w-5 h-5" />
-          <span className="text-sm">{isExporting ? 'Generating...' : 'Export Schedule'}</span>
+        <button onClick={exportToImage} disabled={isExporting} className={`w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-100 active:scale-95 ${isExporting ? 'opacity-70 cursor-wait' : ''}`}>
+          <Download className="w-5 h-5" /><span className="text-sm">{isExporting ? 'Generating...' : 'Export Schedule'}</span>
         </button>
       </div>
     </div>
@@ -454,120 +611,90 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-[#f8fafc] overflow-hidden">
-      {/* Desktop Sidebar */}
       <aside className="no-print hidden md:flex w-64 border-r border-gray-200 flex-col flex-shrink-0 z-10 bg-white">
         {sidebarContent}
       </aside>
 
-      {/* Mobile Drawer Overlay */}
       <div className={`no-print fixed inset-0 z-50 md:hidden transition-all duration-300 ${isSidebarOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
         <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsSidebarOpen(false)} />
         <div className={`absolute top-0 bottom-0 left-0 w-72 bg-white shadow-2xl transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-          <button onClick={() => setIsSidebarOpen(false)} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600">
-             <X className="w-6 h-6" />
-          </button>
           {sidebarContent}
+          <button onClick={() => setIsSidebarOpen(false)} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 z-20"><X className="w-6 h-6" /></button>
         </div>
       </div>
 
       <main className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
         <header className="no-print bg-white border-b border-gray-200 px-4 md:px-6 py-3 md:py-4 flex items-center justify-between shadow-sm z-10">
           <div className="flex items-center gap-3">
-             <button onClick={() => setIsSidebarOpen(true)} className="md:hidden p-2 -ml-2 text-gray-500 hover:bg-indigo-100 rounded-lg">
-                <Menu className="w-5 h-5" />
-             </button>
+             <button onClick={() => setIsSidebarOpen(true)} className="md:hidden p-2 -ml-2 text-gray-500 hover:bg-indigo-100 rounded-lg"><Menu className="w-5 h-5" /></button>
              <div className="bg-[#f0f3ff] p-1.5 md:p-2 rounded-lg overflow-hidden flex items-center justify-center">
-                {plannerIcon ? (
-                  <img src={plannerIcon} alt="Logo" className="w-4 h-4 md:w-6 md:h-6 object-cover" />
-                ) : (
-                  <CalendarIcon className="w-4 h-4 md:w-6 md:h-6 text-[#6366f1]" />
-                )}
+                {plannerIcon ? <img src={plannerIcon} alt="Logo" className="w-4 h-4 md:w-6 md:h-6 object-cover" /> : <CalendarIcon className="w-4 h-4 md:w-6 md:h-6 text-[#6366f1]" />}
              </div>
              <div>
                 <h2 className="text-sm md:text-lg font-black text-slate-800 leading-none mb-0.5">
-                  {currentView === 'MASTER' ? `${plannerName} Master` : currentStudent?.name}
+                  {currentView === 'MASTER' ? plannerName : 
+                   currentView === 'INCOME' ? 'Income Report' :
+                   currentStudent?.name}
                 </h2>
-                <div className="text-gray-400 text-[9px] md:text-[11px] font-black uppercase tracking-widest">
-                  {currentMonthName} {year}
-                </div>
+                <div className="text-gray-400 text-[9px] md:text-[11px] font-black uppercase tracking-widest">{currentMonthName} {year}</div>
              </div>
           </div>
-
           <div className="flex items-center gap-2">
             <div className="flex bg-gray-50 rounded-xl p-0.5 border border-gray-100">
-              <button onClick={handlePrevMonth} className="p-1 hover:bg-white hover:shadow-sm rounded-md transition-all text-gray-400">
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <div className="px-3 py-1 text-[10px] md:text-xs font-black text-gray-700 min-w-[80px] md:min-w-[100px] text-center uppercase tracking-widest">
-                {currentMonthName}
-              </div>
-              <button onClick={handleNextMonth} className="p-1 hover:bg-white hover:shadow-sm rounded-md transition-all text-gray-400">
-                <ChevronRight className="w-4 h-4" />
-              </button>
+              <button onClick={handlePrevMonth} className="p-1 hover:bg-white hover:shadow-sm rounded-md transition-all text-gray-400"><ChevronLeft className="w-4 h-4" /></button>
+              <div className="px-3 py-1 text-[10px] md:text-xs font-black text-gray-700 min-w-[80px] md:min-w-[100px] text-center uppercase tracking-widest">{currentMonthName}</div>
+              <button onClick={handleNextMonth} className="p-1 hover:bg-white hover:shadow-sm rounded-md transition-all text-gray-400"><ChevronRight className="w-4 h-4" /></button>
             </div>
           </div>
         </header>
 
+        {!isExporting && (
+          <nav className="no-print bg-white border-b border-gray-100 flex items-center px-4 py-2 gap-2 overflow-x-auto hide-scrollbar flex-shrink-0">
+            <button onClick={() => setCurrentView('MASTER')} className={`flex items-center justify-center p-2 rounded-full transition-all flex-shrink-0 ${currentView === 'MASTER' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}><CalendarIcon className="w-4 h-4" /></button>
+            <button onClick={() => setCurrentView('INCOME')} className={`flex items-center justify-center p-2 rounded-full transition-all flex-shrink-0 ${currentView === 'INCOME' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-100' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}><TrendingUp className="w-4 h-4" /></button>
+            <div className="w-px h-4 bg-gray-200 flex-shrink-0" />
+            {students.map(s => (
+              <button key={s.id} onClick={() => setCurrentView(s.id)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] md:text-xs font-black uppercase tracking-tight transition-all flex-shrink-0 ${currentView === s.id ? 'bg-indigo-50 text-indigo-700 ring-2 ring-indigo-200 shadow-sm' : 'bg-white border border-gray-100 text-gray-400 hover:border-indigo-200 hover:text-indigo-500'}`}><div className={`w-1.5 h-1.5 rounded-full ${s.color.split(' ')[0]}`} />{s.name}</button>
+            ))}
+          </nav>
+        )}
+
         <div className="flex-1 overflow-y-auto p-4 md:p-10">
           <div className={`${isExporting ? 'w-full h-full' : 'max-w-6xl mx-auto'} flex flex-col`} ref={exportRef}>
-            
-            {/* Minimalist Export Header - Specifically centered for the fixed 16:9 frame */}
-            <div className={`flex flex-col gap-6 mb-8 ${isExporting ? 'block' : 'hidden'}`}>
-              <div className="flex items-center gap-8">
-                <div className="bg-[#f0f3ff] w-24 h-24 rounded-3xl shadow-xl shadow-[#eaedff] flex items-center justify-center">
-                   {plannerIcon ? (
-                     <img src={plannerIcon} alt="Logo" className="w-14 h-14 object-cover rounded-xl" />
-                   ) : (
-                     <CalendarIcon className="w-12 h-12 text-[#6366f1]" />
-                   )}
-                </div>
-                <div className="flex flex-col gap-1">
-                  <h1 className="text-5xl font-black text-slate-900 tracking-tighter leading-tight">
-                    {currentView === 'MASTER' ? `${plannerName} Master` : currentStudent?.name}
-                  </h1>
-                  <p className="text-base font-black text-gray-400 uppercase tracking-[0.4em]">
-                    {currentMonthName} {year}
-                  </p>
-                </div>
-              </div>
-              
-              <div className="flex items-center bg-[#f8fafc] rounded-full px-4 py-2 border border-gray-100 shadow-sm w-fit min-w-[280px] justify-between">
-                 <div className="p-2 text-gray-300">
-                    <ChevronLeft className="w-6 h-6" />
-                 </div>
-                 <div className="px-8 text-xs font-black text-gray-700 uppercase tracking-[0.4em]">
-                    {currentMonthName}
-                 </div>
-                 <div className="p-2 text-gray-300">
-                    <ChevronRight className="w-6 h-6" />
-                 </div>
-              </div>
-            </div>
-
-            {currentView === 'MASTER' && (
-              <div className="mb-4 md:mb-8 flex flex-wrap gap-2 md:gap-3 items-center px-1">
-                <div className="flex items-center gap-2 bg-gray-900 px-3 md:px-4 py-1.5 md:py-2 rounded-xl border border-gray-900 text-[10px] md:text-[12px] font-black text-white shadow-md">
-                  <Star className="w-3 md:w-3.5 h-3 md:h-3.5 text-amber-400 fill-amber-400" />
-                  Events
-                </div>
-                {students.length > 0 && <div className="w-px h-4 bg-gray-200 mx-2 no-print" />}
-                {students.map(s => (
-                  <div key={s.id} className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-gray-100 text-[10px] md:text-[12px] font-black text-gray-600 shadow-sm">
-                    <div className={`w-2 h-2 rounded-full ${s.color.split(' ')[0]}`} />
-                    {s.name}
+            {currentView === 'INCOME' ? (
+              <IncomeView 
+                students={students}
+                classes={classes}
+                payments={payments}
+                onTogglePayment={togglePayment}
+                onUpdatePaymentInfo={updatePaymentInfo}
+                onUpdateClass={addOrUpdateClass}
+                month={month}
+                year={year}
+                monthName={currentMonthName}
+              />
+            ) : (
+              <>
+                <div className={`flex flex-col gap-2 mb-4 ${isExporting ? 'block' : 'hidden'}`}>
+                  <div className="flex items-center gap-4">
+                    <div className="bg-[#f0f3ff] w-12 h-12 rounded-xl shadow-lg shadow-[#eaedff] flex items-center justify-center">
+                       {plannerIcon ? <img src={plannerIcon} alt="Logo" className="w-8 h-8 object-cover rounded-lg" /> : <CalendarIcon className="w-6 h-6 text-[#6366f1]" />}
+                    </div>
+                    <div className="flex flex-col gap-0">
+                      <h1 className="text-xl font-black text-slate-900 tracking-tighter leading-tight">{currentView === 'MASTER' ? plannerName : currentStudent?.name}</h1>
+                      <p className="text-[8px] font-black text-gray-400 uppercase tracking-[0.4em]">{currentMonthName} {year}</p>
+                    </div>
                   </div>
-                ))}
-              </div>
+                </div>
+
+                <div className="print:m-0 w-full overflow-hidden flex-grow pt-0">
+                   {renderCalendar()}
+                </div>
+              </>
             )}
 
-            <div className="print:m-0 w-full overflow-hidden flex-grow">
-               {renderCalendar()}
-            </div>
-
-            <footer className="mt-8 md:mt-12 text-center pb-8">
-               <p className="text-gray-300 text-[7px] md:text-[9px] font-black tracking-[0.5em] uppercase flex items-center justify-center gap-1">
-                 <span>© DESIGNED BY SOBRI ASLY</span>
-               </p>
+            <footer className={`${isExporting ? 'mt-4' : 'mt-8 md:mt-12'} text-center pb-4`}>
+               <p className="text-gray-300 text-[7px] md:text-[9px] font-black tracking-[0.5em] uppercase flex items-center justify-center gap-1"><span>© DESIGNED BY SOBRI ASLY</span></p>
             </footer>
           </div>
         </div>
@@ -575,23 +702,31 @@ const App: React.FC = () => {
 
       <ClassModal 
         isOpen={isClassModalOpen}
-        onClose={() => {
-          setIsClassModalOpen(false);
-          setEditingClass(undefined);
-        }}
+        onClose={() => { setIsClassModalOpen(false); setEditingClass(undefined); }}
         onSave={addOrUpdateClass}
+        onReschedule={handleReschedule}
         onDelete={deleteClass}
+        setWarningMessage={setWarningMessage}
         students={students}
         initialData={editingClass}
+        currentView={currentView}
       />
+      <StudentModal isOpen={isStudentModalOpen} onClose={() => setIsStudentModalOpen(false)} students={students} onAdd={addStudent} onDelete={deleteStudent} />
 
-      <StudentModal 
-        isOpen={isStudentModalOpen}
-        onClose={() => setIsStudentModalOpen(false)}
-        students={students}
-        onAdd={addStudent}
-        onDelete={deleteStudent}
-      />
+      {/* Warning Toast */}
+      {warningMessage && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <div className="bg-gray-900 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border border-white/10 backdrop-blur-md">
+            <div className="bg-amber-500 p-1 rounded-full">
+              <ArrowRight className="w-3 h-3 text-white" />
+            </div>
+            <p className="text-xs font-bold tracking-wide">{warningMessage}</p>
+            <button onClick={() => setWarningMessage(null)} className="ml-2 p-1 hover:bg-white/10 rounded-lg transition-colors">
+              <X className="w-4 h-4 text-gray-400" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

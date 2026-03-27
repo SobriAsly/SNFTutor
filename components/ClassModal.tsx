@@ -2,26 +2,32 @@
 import React, { useState, useEffect } from 'react';
 import { Student, ClassSession } from '../types';
 import { COLORS } from '../constants';
-import { X, GraduationCap, Calendar as CalendarIcon, ArrowRight, Clock } from 'lucide-react';
+import { X, GraduationCap, Calendar as CalendarIcon, ArrowRight, Clock, Edit3 } from 'lucide-react';
 
 interface ClassModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (session: Partial<ClassSession>) => void;
+  onReschedule?: (session: ClassSession, newDate: string) => void;
   onDelete?: (id: string) => void;
+  setWarningMessage?: (msg: string | null) => void;
   students: Student[];
   initialData?: Partial<ClassSession>;
+  currentView?: string;
 }
 
 const ClassModal: React.FC<ClassModalProps> = ({
   isOpen,
   onClose,
   onSave,
+  onReschedule,
   onDelete,
+  setWarningMessage,
   students,
-  initialData
+  initialData,
+  currentView
 }) => {
-  const [type, setType] = useState<'SESSION' | 'EVENT'>('SESSION');
+  const [type, setType] = useState<'SESSION' | 'EVENT' | 'QUICK' | 'RESCHEDULE'>('SESSION');
   const [studentId, setStudentId] = useState('');
   const [title, setTitle] = useState('');
   const [color, setColor] = useState(COLORS[16]); // Default to a grey/slate for events
@@ -32,10 +38,16 @@ const ClassModal: React.FC<ClassModalProps> = ({
   const [durMins, setDurMins] = useState('');
   const [notes, setNotes] = useState('');
 
+  const isEdit = !!initialData?.id;
+
   useEffect(() => {
     if (initialData) {
       const isNew = !initialData.id;
-      setType(initialData.type || (initialData.studentId ? 'SESSION' : 'EVENT'));
+      if (isNew) {
+        setType(initialData.type || 'SESSION');
+      } else {
+        setType('QUICK'); // Default to Edit tab when editing
+      }
       setStudentId(initialData.studentId || '');
       setTitle(initialData.title || '');
       setColor(initialData.color || COLORS[16]);
@@ -77,18 +89,29 @@ const ClassModal: React.FC<ClassModalProps> = ({
       ? `${(durHrs || '0').padStart(2, '0')}:${(durMins || '0').padStart(2, '0')}`
       : undefined;
 
-    onSave({
-      id: initialData?.id,
-      type,
-      studentId: type === 'SESSION' ? studentId : undefined,
-      title: type === 'EVENT' ? title : undefined,
-      color: type === 'EVENT' ? color : undefined,
-      date,
-      endDate: type === 'EVENT' ? endDate : undefined,
-      startTime: startTime || undefined,
-      duration: durationStr,
-      notes
-    });
+    const finalType = type === 'RESCHEDULE' ? (initialData?.type || 'SESSION') : type;
+    const isSameDate = type === 'RESCHEDULE' && date === initialData?.date;
+
+    if (type === 'RESCHEDULE' && onReschedule && initialData?.id) {
+      if (isSameDate) {
+        if (setWarningMessage) setWarningMessage("Cannot reschedule to the same date");
+        return;
+      }
+      onReschedule(initialData as ClassSession, date);
+    } else {
+      onSave({
+        id: initialData?.id,
+        type: finalType as 'SESSION' | 'EVENT' | 'QUICK',
+        studentId: (finalType === 'SESSION' || finalType === 'QUICK') ? studentId : undefined,
+        title: finalType === 'EVENT' ? title : undefined,
+        color: finalType === 'EVENT' ? color : undefined,
+        date,
+        endDate: finalType === 'EVENT' ? endDate : undefined,
+        startTime: finalType === 'QUICK' ? undefined : (startTime || undefined),
+        duration: finalType === 'QUICK' ? undefined : durationStr,
+        notes
+      });
+    }
     onClose();
   };
 
@@ -105,26 +128,83 @@ const ClassModal: React.FC<ClassModalProps> = ({
         </div>
 
         <div className="flex p-1 bg-gray-100 mx-6 mt-6 rounded-xl">
-          <button
-            type="button"
-            onClick={() => setType('SESSION')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all ${type === 'SESSION' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            <GraduationCap className="w-4 h-4" />
-            Student Class
-          </button>
-          <button
-            type="button"
-            onClick={() => setType('EVENT')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all ${type === 'EVENT' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            <CalendarIcon className="w-4 h-4" />
-            General Event
-          </button>
+          {!isEdit ? (
+            <>
+              {(currentView !== 'MASTER') && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setType('SESSION')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all ${type === 'SESSION' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    <GraduationCap className="w-4 h-4" />
+                    Class
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setType('QUICK')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all ${type === 'QUICK' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    <Edit3 className="w-4 h-4" />
+                    Edit
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => setType('EVENT')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all ${type === 'EVENT' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <CalendarIcon className="w-4 h-4" />
+                Event
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setType('QUICK')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all ${type === 'QUICK' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <Edit3 className="w-4 h-4" />
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => setType('RESCHEDULE')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all ${type === 'RESCHEDULE' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <CalendarIcon className="w-4 h-4" />
+                Reschedule
+              </button>
+            </>
+          )}
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {type === 'SESSION' ? (
+          {type === 'RESCHEDULE' && (
+            <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Current Date</p>
+                  <p className="text-sm font-bold text-gray-700">{initialData?.date}</p>
+                </div>
+                <ArrowRight className="w-4 h-4 text-indigo-300" />
+                <div className="flex-1 ml-4">
+                  <label className="block text-[10px] font-bold text-indigo-400 uppercase tracking-wider mb-1">New Date</label>
+                  <input
+                    type="date"
+                    required
+                    className="w-full bg-transparent border-b-2 border-indigo-200 focus:border-indigo-500 outline-none text-sm font-bold text-indigo-600 transition-all"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {(type === 'SESSION' || type === 'QUICK') && type !== 'QUICK' && (
             <div>
               <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 ml-1">Student</label>
               <select
@@ -139,7 +219,9 @@ const ClassModal: React.FC<ClassModalProps> = ({
                 ))}
               </select>
             </div>
-          ) : (
+          )}
+
+          {type === 'EVENT' && (
             <>
               <div>
                 <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 ml-1">Event Title</label>
@@ -196,72 +278,82 @@ const ClassModal: React.FC<ClassModalProps> = ({
               </div>
             </div>
           ) : (
+            (type === 'SESSION') && (
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 ml-1">Date</label>
+                <input
+                  type="date"
+                  required
+                  className="w-full border border-gray-200 rounded-xl p-3 text-gray-900 bg-gray-50/50 focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                />
+              </div>
+            )
+          )}
+
+          {(type === 'SESSION' || type === 'EVENT') && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 ml-1 text-gray-400">Start Time</label>
+                <input
+                  type="time"
+                  className="w-full border border-gray-200 rounded-xl p-3 text-gray-900 bg-gray-50/50 focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 ml-1 text-gray-400">Duration (HH:MM)</label>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min="0"
+                    max="23"
+                    placeholder="HH"
+                    className="w-full border border-gray-200 rounded-xl p-3 text-gray-900 bg-gray-50/50 focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
+                    value={durHrs}
+                    onChange={(e) => setDurHrs(e.target.value)}
+                  />
+                  <span className="font-bold text-gray-400">:</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="59"
+                    placeholder="MM"
+                    className="w-full border border-gray-200 rounded-xl p-3 text-gray-900 bg-gray-50/50 focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
+                    value={durMins}
+                    onChange={(e) => setDurMins(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {type !== 'RESCHEDULE' && (
             <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 ml-1">Date</label>
-              <input
-                type="date"
-                required
+              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 ml-1 text-gray-400">Notes</label>
+              <textarea
                 className="w-full border border-gray-200 rounded-xl p-3 text-gray-900 bg-gray-50/50 focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
+                rows={2}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Any additional details..."
               />
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 ml-1 text-gray-400">Start Time</label>
-              <input
-                type="time"
-                className="w-full border border-gray-200 rounded-xl p-3 text-gray-900 bg-gray-50/50 focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 ml-1 text-gray-400">Duration (HH:MM)</label>
-              <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  min="0"
-                  max="23"
-                  placeholder="HH"
-                  className="w-full border border-gray-200 rounded-xl p-3 text-gray-900 bg-gray-50/50 focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
-                  value={durHrs}
-                  onChange={(e) => setDurHrs(e.target.value)}
-                />
-                <span className="font-bold text-gray-400">:</span>
-                <input
-                  type="number"
-                  min="0"
-                  max="59"
-                  step="30"
-                  placeholder="MM"
-                  className="w-full border border-gray-200 rounded-xl p-3 text-gray-900 bg-gray-50/50 focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
-                  value={durMins}
-                  onChange={(e) => setDurMins(e.target.value)}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 ml-1 text-gray-400">Notes</label>
-            <textarea
-              className="w-full border border-gray-200 rounded-xl p-3 text-gray-900 bg-gray-50/50 focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
-              rows={2}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Any additional details..."
-            />
-          </div>
-
           <div className="pt-4 flex flex-col gap-2">
             <button
               type="submit"
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-indigo-100 active:scale-[0.98]"
+              disabled={type === 'RESCHEDULE' && date === initialData?.date}
+              className={`w-full font-bold py-3 rounded-xl transition-all shadow-lg active:scale-[0.98] ${
+                type === 'RESCHEDULE' && date === initialData?.date
+                  ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-100'
+              }`}
             >
-              Save to Schedule
+              {type === 'RESCHEDULE' ? 'Reschedule Entry' : 'Save to Schedule'}
             </button>
             {initialData?.id && onDelete && (
               <button

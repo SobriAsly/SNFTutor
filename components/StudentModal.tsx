@@ -14,7 +14,9 @@ interface StudentModalProps {
 
 const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, students, onAdd, onDelete }) => {
   const [newName, setNewName] = useState('');
-  const [selectedColor, setSelectedColor] = useState(COLORS[0]);
+  const usedColors = new Set(students.map(s => s.color));
+  const availableColors = COLORS.filter(c => !usedColors.has(c));
+  const [selectedColor, setSelectedColor] = useState(availableColors[0] || COLORS[0]);
 
   if (!isOpen) return null;
 
@@ -23,9 +25,11 @@ const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, students, 
     if (newName.trim() && students.length < 20) {
       onAdd(newName.trim(), selectedColor);
       setNewName('');
-      // Auto-pick next color for convenience
-      const currentIndex = COLORS.indexOf(selectedColor);
-      setSelectedColor(COLORS[(currentIndex + 1) % COLORS.length]);
+      // Auto-pick next available color
+      const remainingColors = COLORS.filter(c => !usedColors.has(c) && c !== selectedColor);
+      if (remainingColors.length > 0) {
+        setSelectedColor(remainingColors[0]);
+      }
     }
   };
 
@@ -51,6 +55,7 @@ const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, students, 
               <input
                 type="text"
                 disabled={isLimitReached}
+                required
                 placeholder={isLimitReached ? "Limit reached (20 students)" : "Student Full Name"}
                 className={`w-full border rounded-xl p-3 text-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none transition-all ${isLimitReached ? 'bg-gray-50 cursor-not-allowed opacity-60' : 'bg-white'}`}
                 value={newName}
@@ -58,16 +63,19 @@ const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, students, 
               />
               
               <div className="grid grid-cols-10 gap-2 p-1">
-                {COLORS.map((color, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    disabled={isLimitReached}
-                    onClick={() => setSelectedColor(color)}
-                    className={`w-6 h-6 rounded-full border-2 transition-all ${color.split(' ')[0]} ${selectedColor === color ? 'border-gray-800 scale-125 shadow-sm' : 'border-transparent hover:scale-110 opacity-80 hover:opacity-100'}`}
-                    title={`Color option ${idx + 1}`}
-                  />
-                ))}
+                {COLORS.map((color, idx) => {
+                  const isTaken = usedColors.has(color);
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      disabled={isLimitReached || isTaken}
+                      onClick={() => setSelectedColor(color)}
+                      className={`w-6 h-6 rounded-full border-2 transition-all ${color.split(' ')[0]} ${selectedColor === color ? 'border-gray-800 scale-125 shadow-sm' : 'border-transparent hover:scale-110 opacity-80 hover:opacity-100'} ${isTaken ? 'opacity-20 cursor-not-allowed scale-75 grayscale' : ''}`}
+                      title={isTaken ? "Color already taken" : `Color option ${idx + 1}`}
+                    />
+                  );
+                })}
               </div>
 
               <button
@@ -98,7 +106,9 @@ const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, students, 
                 <div key={s.id} className="flex items-center justify-between p-3 border border-gray-100 rounded-xl bg-gray-50/50 hover:bg-white hover:shadow-sm transition-all group">
                   <div className="flex items-center gap-3">
                     <div className={`w-3 h-3 rounded-full shadow-sm ${s.color.split(' ')[0]}`} />
-                    <span className="font-semibold text-gray-900 text-sm">{s.name}</span>
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-gray-900 text-sm">{s.name}</span>
+                    </div>
                   </div>
                   <button
                     onClick={() => onDelete(s.id)}

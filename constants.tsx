@@ -25,7 +25,7 @@ export const COLORS = [
 ];
 
 export const INITIAL_STUDENTS = [
-  { id: '1', name: 'Alice Chen', color: COLORS[0] },
-  { id: '2', name: 'Bob Smith', color: COLORS[1] },
-  { id: '3', name: 'Charlie Davis', color: COLORS[2] },
+  { id: '1', name: 'Alice Chen', color: COLORS[0], defaultHours: 1, pricePerHour: 35 },
+  { id: '2', name: 'Bob Smith', color: COLORS[1], defaultHours: 1.5, pricePerHour: 35 },
+  { id: '3', name: 'Charlie Davis', color: COLORS[2], defaultHours: 1, pricePerHour: 35 },
 ];
