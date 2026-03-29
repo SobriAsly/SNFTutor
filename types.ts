@@ -22,6 +22,8 @@ export interface ClassSession {
   customHours?: number; // Override student/monthly defaultHours
   customPrice?: number; // Override student/monthly pricePerHour
   notes?: string;
+  isCancelled?: boolean;
+  isReplacement?: boolean;
 }
 
 export interface PaymentInfo {

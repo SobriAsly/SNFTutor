@@ -37,6 +37,7 @@ const ClassModal: React.FC<ClassModalProps> = ({
   const [durHrs, setDurHrs] = useState('');
   const [durMins, setDurMins] = useState('');
   const [notes, setNotes] = useState('');
+  const [isReplacement, setIsReplacement] = useState(false);
 
   const isEdit = !!initialData?.id;
 
@@ -71,6 +72,7 @@ const ClassModal: React.FC<ClassModalProps> = ({
       }
       
       setNotes(initialData.notes || '');
+      setIsReplacement(initialData.isReplacement || false);
     }
   }, [initialData, isOpen]);
 
@@ -109,7 +111,8 @@ const ClassModal: React.FC<ClassModalProps> = ({
         endDate: finalType === 'EVENT' ? endDate : undefined,
         startTime: finalType === 'QUICK' ? undefined : (startTime || undefined),
         duration: finalType === 'QUICK' ? undefined : durationStr,
-        notes
+        notes,
+        isReplacement: finalType === 'QUICK' ? isReplacement : undefined
       });
     }
     onClose();
@@ -356,16 +359,27 @@ const ClassModal: React.FC<ClassModalProps> = ({
               {type === 'RESCHEDULE' ? 'Reschedule Entry' : 'Save to Schedule'}
             </button>
             {initialData?.id && onDelete && (
-              <button
-                type="button"
-                onClick={() => {
-                  onDelete(initialData.id!);
-                  onClose();
-                }}
-                className="w-full text-rose-600 hover:bg-rose-50 font-bold py-2 rounded-xl transition-all"
-              >
-                Delete Entry
-              </button>
+              <div className="flex gap-2">
+                {type === 'QUICK' && (
+                  <button
+                    type="button"
+                    onClick={() => setIsReplacement(!isReplacement)}
+                    className={`flex-1 font-bold py-2 rounded-xl transition-all border ${isReplacement ? 'bg-amber-50 border-amber-200 text-amber-600' : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'}`}
+                  >
+                    {isReplacement ? 'Replacement Active' : 'Mark Replacement'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDelete(initialData.id!);
+                    onClose();
+                  }}
+                  className={`${type === 'QUICK' ? 'flex-1' : 'w-full'} text-rose-600 hover:bg-rose-50 font-bold py-2 rounded-xl transition-all`}
+                >
+                  Delete Entry
+                </button>
+              </div>
             )}
           </div>
         </form>

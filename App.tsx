@@ -22,7 +22,9 @@ import {
   Menu,
   X,
   ArrowRight,
-  TrendingUp
+  TrendingUp,
+  RefreshCw,
+  Repeat
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -416,7 +418,7 @@ const App: React.FC = () => {
       const hasSpecialInput = isStudentView && dayClasses.some(c => (c.type === 'SESSION' || c.type === 'QUICK') && c.studentId === currentView && !c.rescheduledTo && (c.startTime || c.duration || c.notes));
       
       const studentBgClass = hasSpecialInput ? 'bg-yellow-300' : (hasStudentSession ? currentStudent?.color?.split(' ')[0] : (isRescheduledDay ? 'bg-gray-100' : 'bg-white'));
-      const studentTextColorClass = hasStudentSession ? currentStudent?.color?.split(' ')[1] : (isRescheduledDay ? 'text-gray-400' : 'text-gray-400');
+      const studentTextColorClass = hasSpecialInput ? 'text-gray-900' : (hasStudentSession ? currentStudent?.color?.split(' ')[1] : (isRescheduledDay ? 'text-gray-400' : 'text-gray-400'));
       const studentBorderClass = 'border border-gray-100';
 
       days.push(
@@ -457,6 +459,7 @@ const App: React.FC = () => {
 
                 if (isStudentView && (hasStudentSession || isRescheduledDay)) {
                     const isRescheduled = !!c.rescheduledTo;
+                    const isReplacement = !!c.isReplacement;
                     const reschDate = c.rescheduledTo ? c.rescheduledTo.split('-').slice(1).reverse().join('/') : '';
                     
                     return (
@@ -467,7 +470,8 @@ const App: React.FC = () => {
                               </span>
                               <div className="flex flex-col items-center justify-center w-full">
                                 <span className={`text-[9px] md:text-sm font-black ${studentTextColorClass} leading-[1.1] break-words uppercase text-center whitespace-normal max-w-full flex items-center justify-center gap-1`}>
-                                    {(c.rescheduledTo || c.originalSessionId) && <span className="text-[7px] md:text-[10px] font-black opacity-70">(R)</span>}
+                                    {(c.rescheduledTo || c.originalSessionId) && <span className="text-[7px] md:text-[10px] font-black opacity-70">(C)</span>}
+                                    {isReplacement && <span className="text-[7px] md:text-[10px] font-black text-red-600">(R)</span>}
                                     {currentStudent?.name}
                                 </span>
                                 {isRescheduled && (
@@ -478,7 +482,7 @@ const App: React.FC = () => {
                                 )}
                               </div>
                             </div>
-                            {c.duration && !isRescheduled && (
+                            {c.duration && !isRescheduled && !isReplacement && (
                                 <span className={`text-[7px] md:text-[8px] font-bold ${studentTextColorClass} opacity-70 uppercase mt-0.5 whitespace-nowrap text-center w-full`}>
                                     {c.duration}
                                 </span>
@@ -490,16 +494,18 @@ const App: React.FC = () => {
                 const s = studentMap.get(c.studentId || '');
                 const studentName = s?.name || 'Unknown';
                 const isRescheduled = !!c.rescheduledTo;
+                const isReplacement = !!c.isReplacement;
                 
                 const hasSpecialInputMaster = !isRescheduled && (c.startTime || c.duration || c.notes);
                 const masterBgColor = hasSpecialInputMaster 
-                  ? 'bg-yellow-300 border' 
+                  ? 'bg-yellow-300 border text-gray-900' 
                   : (isRescheduled ? 'bg-gray-100 text-gray-400 border-gray-200 border' : (s?.color || 'bg-gray-100 text-gray-800 border'));
 
                 return (
                   <div key={c.id} onClick={(e) => handleClassDetailsClick(e, c)} className={`px-1 md:px-1.5 py-0.5 md:py-1 rounded shadow-sm transition-transform active:scale-95 ${masterBgColor} ${isRescheduled ? 'opacity-60' : ''} w-full overflow-hidden`}>
                     <div className="text-[7px] md:text-[10px] font-bold truncate w-full flex items-center gap-1">
-                      {(c.rescheduledTo || c.originalSessionId) && <span className="text-[6px] md:text-[8px] font-black opacity-70">(R)</span>}
+                      {(c.rescheduledTo || c.originalSessionId) && <span className="text-[6px] md:text-[8px] font-black opacity-70">(C)</span>}
+                      {isReplacement && <span className="text-[6px] md:text-[8px] font-black text-red-600">(R)</span>}
                       {c.startTime ? `${formatTime(c.startTime)} ${studentName}` : studentName}
                     </div>
                   </div>
