@@ -467,6 +467,7 @@ const App: React.FC = () => {
                               </span>
                               <div className="flex flex-col items-center justify-center w-full">
                                 <span className={`text-[9px] md:text-sm font-black ${studentTextColorClass} leading-[1.1] break-words uppercase text-center whitespace-normal max-w-full flex items-center justify-center gap-1`}>
+                                    {(c.rescheduledTo || c.originalSessionId) && <span className="text-[7px] md:text-[10px] font-black opacity-70">(R)</span>}
                                     {currentStudent?.name}
                                 </span>
                                 {isRescheduled && (
@@ -498,6 +499,7 @@ const App: React.FC = () => {
                 return (
                   <div key={c.id} onClick={(e) => handleClassDetailsClick(e, c)} className={`px-1 md:px-1.5 py-0.5 md:py-1 rounded shadow-sm transition-transform active:scale-95 ${masterBgColor} ${isRescheduled ? 'opacity-60' : ''} w-full overflow-hidden`}>
                     <div className="text-[7px] md:text-[10px] font-bold truncate w-full flex items-center gap-1">
+                      {(c.rescheduledTo || c.originalSessionId) && <span className="text-[6px] md:text-[8px] font-black opacity-70">(R)</span>}
                       {c.startTime ? `${formatTime(c.startTime)} ${studentName}` : studentName}
                     </div>
                   </div>

@@ -31,8 +31,8 @@ const IncomeView: React.FC<IncomeViewProps> = ({
   const calculateStudentIncome = (student: Student) => {
     // Filter classes for this student in the current month
     const studentClasses = classes.filter(c => {
-      if (c.type !== 'SESSION' || c.studentId !== student.id) return false;
-      if (c.rescheduledTo) return false; // Don't count ghost sessions
+      if ((c.type !== 'SESSION' && c.type !== 'QUICK') || c.studentId !== student.id) return false;
+      if (c.originalSessionId) return false; // Don't count the new "moved" session in its new month
       
       const [cYear, cMonth] = c.date.split('-').map(Number);
       return cYear === year && (cMonth - 1) === month;
@@ -224,7 +224,14 @@ const IncomeView: React.FC<IncomeViewProps> = ({
                       {studentClasses.map(c => (
                         <div key={c.id} className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm space-y-2">
                           <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold text-slate-500">{new Date(c.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+                            <span className="text-[10px] font-bold text-slate-500">
+                              {new Date(c.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                              {c.rescheduledTo && (
+                                <span className="text-indigo-400 ml-1">
+                                  → {new Date(c.rescheduledTo).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                </span>
+                              )}
+                            </span>
                             <span className="text-[10px] font-black text-indigo-600">
                               RM {((c.customHours !== undefined ? c.customHours : hours) * (c.customPrice !== undefined ? c.customPrice : price)).toLocaleString()}
                             </span>
@@ -387,7 +394,14 @@ const IncomeView: React.FC<IncomeViewProps> = ({
                                 {studentClasses.map(c => (
                                   <div key={c.id} className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm space-y-2">
                                     <div className="flex items-center justify-between border-b border-gray-50 pb-1">
-                                      <span className="text-[10px] font-bold text-slate-500">{new Date(c.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+                                      <span className="text-[10px] font-bold text-slate-500">
+                                        {new Date(c.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                        {c.rescheduledTo && (
+                                          <span className="text-indigo-400 ml-1">
+                                            → {new Date(c.rescheduledTo).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                          </span>
+                                        )}
+                                      </span>
                                       <span className="text-[10px] font-black text-indigo-600">
                                         RM {((c.customHours !== undefined ? c.customHours : hours) * (c.customPrice !== undefined ? c.customPrice : price)).toLocaleString()}
                                       </span>
